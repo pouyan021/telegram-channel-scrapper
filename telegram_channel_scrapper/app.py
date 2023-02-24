@@ -18,7 +18,8 @@ sns = boto3.client('sns')
 def lambda_handler(event, context):
     for update in bot.get_updates():
         message = update.channel_post.text
-        logger.info("received the event %s", event)
+        logger.debug("the message is %s", message)
+        logger.debug("received the event %s", event)
         # Translate the message to your desired language
         translated_message = translate_text(message)
 
