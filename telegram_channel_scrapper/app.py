@@ -1,11 +1,19 @@
 import os
 import re
+import sys
+
 import telebot
 import boto3
 import logging
 
 
 logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+
+logger.addHandler(handler)
 
 bot_token = os.getenv('TELEGRAM_TOKEN')
 channel_id = os.getenv('CHANNEL_ID')
