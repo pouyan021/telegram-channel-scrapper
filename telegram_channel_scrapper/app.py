@@ -1,9 +1,11 @@
+from datetime import datetime, timedelta
 import os
 import re
 import sys
-import telebot
+
 import boto3
 import logging
+from telethon import TelegramClient
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -13,7 +15,9 @@ handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s -
 
 logger.addHandler(handler)
 
-bot_token = os.getenv('TELEGRAM_TOKEN')
+api_id = os.getenv('API_ID')
+api_hash = os.getenv('API_HASH')
+user_name = os.getenv('USER_NAME')
 channel_id = os.getenv('CHANNEL_ID')
 email = os.getenv('EMAIL')
 pattern = os.getenv('PATTERN')
@@ -23,7 +27,6 @@ target_lang = os.getenv('TRG_LNG')
 notification_subject = os.getenv('NOTIF_SUB')
 topic_arn = os.getenv('TOPIC_ARN')
 
-bot = telebot.TeleBot(bot_token)
 translate = boto3.client(service_name='translate')
 sns = boto3.client('sns')
 
@@ -33,14 +36,15 @@ sns.subscribe(
     Endpoint=email,
 )
 
+client = TelegramClient(user_name, api_id, api_hash)
+client.start()
+
 
 def lambda_handler(event, context):
-    updates = bot.get_updates()
-    logger.debug("There are %d new messages", len(updates))
-    for update in updates:
-        message = update.channel_post.text
+    posting_date = datetime.today() - timedelta(days=1)
+    for update in client.iter_messages(channel_id, reverse=True, offset_date=posting_date):
+        message = update.message.text
         logger.debug("the message is %s", message)
-        logger.debug("received the event %s", event)
         # Translate the message to your desired language
         translated_message = translate_text(message)
 
