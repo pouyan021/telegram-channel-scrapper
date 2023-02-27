@@ -6,9 +6,11 @@ import sys
 import boto3
 import logging
 from telethon import TelegramClient
+from telethon.sessions import StringSession
+
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
@@ -36,17 +38,17 @@ sns.subscribe(
     Endpoint=email,
 )
 
-client = TelegramClient(user_name, api_id, api_hash)
+session = os.environ.get('SESSION')
+client = TelegramClient(StringSession(session), api_id, api_hash)
 client.start()
 
 
 def lambda_handler(event, context):
     posting_date = datetime.today() - timedelta(days=1)
     for update in client.iter_messages(channel_id, reverse=True, offset_date=posting_date):
-        message = update.message.text
-        logger.debug("the message is %s", message)
         # Translate the message to your desired language
-        translated_message = translate_text(message)
+        translated_message = translate_text(text=update.text)
+        logger.info("the message is %s", translated_message)
 
         if re.search(pattern, translated_message, flags=re.IGNORECASE):
             if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
@@ -55,7 +57,7 @@ def lambda_handler(event, context):
 
 
 def translate_text(text):
-    result = translate.translate_text(text,
+    result = translate.translate_text(Text=text,
                                       SourceLanguageCode=source_lang, TargetLanguageCode=target_lang)
     return result['TranslatedText']
 
