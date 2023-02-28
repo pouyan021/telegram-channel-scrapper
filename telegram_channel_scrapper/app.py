@@ -32,10 +32,10 @@ topic_arn = os.getenv('TOPIC_ARN')
 translate = boto3.client(service_name='translate')
 sns = boto3.client('sns')
 
-subscriptions = sns.list_subscription_by_topic(TopicArn=topic_arn)['Subscriptions']
+subscriptions = sns.list_subscriptions_by_topic(TopicArn=topic_arn)['Subscriptions']
 for subscription in subscriptions:
     if subscription['Endpoint'] == email:
-        print('Subscription already confirmed')
+        logger.info('Subscription already confirmed')
         break
     else:
         sns.subscribe(
