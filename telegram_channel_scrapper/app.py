@@ -42,9 +42,13 @@ else:
         dynamo_db.create_table(
             TableName=table_name,
             KeySchema=[
-                {'AttributeName': 'message_id', 'KeyType': 'HASH'}
+                {'AttributeName': 'message_id', 'KeyType': 'HASH'},
+                {'AttributeName': 'id', 'KeyType': 'RANGE'}
             ],
-            AttributeDefinitions=[{'AttributeName': 'message_id', 'AttributeType': 'S'}],
+            AttributeDefinitions=[
+                {'AttributeName': 'message_id', 'AttributeType': 'S'},
+                {'AttributeName': 'id', 'AttributeType': 'N'}
+            ],
             ProvisionedThroughput={'ReadCapacityUnits': 10, 'WriteCapacityUnits': 10}
         )
         dynamo_db.wait_until_exists()
@@ -71,27 +75,25 @@ session = os.environ.get('SESSION')
 client = TelegramClient(StringSession(session), api_id, api_hash)
 client.start()
 
+posting_date = datetime.today() - timedelta(days=1)
+
 
 def lambda_handler(event, context):
     global translated_message
-    posting_date = datetime.today() - timedelta(days=1)
-    for update in client.iter_messages(channel_id, reverse=True, offset_date=posting_date):
+    max_id = find_max_id()
+
+    handle_messages(max_id)
+    return {
+        'statusCode': 200,
+        'result': 'Success'
+    }
+
+
+def handle_messages(max_id):
+    global translated_message
+    for update in client.iter_messages(channel_id, reverse=True, offset_date=posting_date, min_id=max_id):
         # Translate the message to your desired language
-        message_id = update.id
-        try:
-            response = dynamo_db.query(
-                TableName=table_name,
-                KeyConditionExpression='message_id = :message_id',
-                ExpressionAttributeValues={':message_id': {
-                    "S": str(message_id)
-                }
-                }
-            )
-        except ClientError as error:
-            logger.error("couldn't get the query. Here's why: %s: %s",
-                         error.response['Error']['Code'],
-                         error.response['Error']['Message'])
-            raise
+        message_id, response = check_db(update)
 
         if response['Items']:
             logger.info("The item %d has been already translated", message_id)
@@ -102,6 +104,9 @@ def lambda_handler(event, context):
                     Item={
                         'message_id': {
                             "S": str(message_id)
+                        },
+                        'id': {
+                            "N": str(message_id)
                         }
                     }
                 )
@@ -114,10 +119,42 @@ def lambda_handler(event, context):
             translated_message = translate_text(text=update.text)
             logger.info("the message is %s", translated_message)
 
-    if re.search(pattern, translated_message, flags=re.IGNORECASE):
-        if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
-            # Send a push notification to yourself
-            send_notification(notification_subject, translated_message)
+            if re.search(pattern, translated_message, flags=re.IGNORECASE):
+                if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
+                    # Send a push notification to yourself
+                    send_notification(notification_subject, translated_message)
+
+
+def check_db(update):
+    message_id = update.id
+    try:
+        response = dynamo_db.query(
+            TableName=table_name,
+            KeyConditionExpression='message_id = :message_id',
+            ExpressionAttributeValues={':message_id': {
+                "S": str(message_id)
+            }
+            }
+        )
+    except ClientError as error:
+        logger.error("couldn't get the query. Here's why: %s: %s",
+                     error.response['Error']['Code'],
+                     error.response['Error']['Message'])
+        raise
+    return message_id, response
+
+
+def find_max_id():
+    records = dynamo_db.scan(
+        TableName=table_name
+    )
+    if records is not None:
+        max_id_dict = max(records["Items"], key=lambda x: int(x['id']['N']))
+        max_id = int(max_id_dict['id']['N'])
+        logger.info("The last id processed is: %s", max_id)
+    else:
+        max_id = 0
+    return max_id
 
 
 def translate_text(text):
