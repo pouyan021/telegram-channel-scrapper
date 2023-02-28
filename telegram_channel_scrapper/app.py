@@ -73,6 +73,7 @@ client.start()
 
 
 def lambda_handler(event, context):
+    global translated_message
     posting_date = datetime.today() - timedelta(days=1)
     for update in client.iter_messages(channel_id, reverse=True, offset_date=posting_date):
         # Translate the message to your desired language
