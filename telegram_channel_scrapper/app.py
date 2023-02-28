@@ -32,11 +32,17 @@ topic_arn = os.getenv('TOPIC_ARN')
 translate = boto3.client(service_name='translate')
 sns = boto3.client('sns')
 
-sns.subscribe(
-    Protocol='email',
-    TopicArn=topic_arn,
-    Endpoint=email,
-)
+subscriptions = sns.list_subscription_by_topic(TopicArn=topic_arn)['Subscriptions']
+for subscription in subscriptions:
+    if subscription['Endpoint'] == email:
+        print('Subscription already confirmed')
+        break
+    else:
+        sns.subscribe(
+            Protocol='email',
+            TopicArn=topic_arn,
+            Endpoint=email,
+        )
 
 session = os.environ.get('SESSION')
 client = TelegramClient(StringSession(session), api_id, api_hash)
