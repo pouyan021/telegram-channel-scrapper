@@ -1,13 +1,13 @@
-from datetime import datetime, timedelta
+import logging
 import os
 import re
 import sys
+from datetime import datetime, timedelta
 
 import boto3
-import logging
+from botocore.exceptions import ClientError
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -29,8 +29,31 @@ target_lang = os.getenv('TRG_LNG')
 notification_subject = os.getenv('NOTIF_SUB')
 topic_arn = os.getenv('TOPIC_ARN')
 
-translate = boto3.client(service_name='translate')
+translate = boto3.client('translate')
 sns = boto3.client('sns')
+table_name = 'message_ids'
+dynamo_db = boto3.client('dynamodb')
+
+existing_tables = dynamo_db.list_tables()['TableNames']
+if table_name in existing_tables:
+    logger.info('Table has already been created')
+else:
+    try:
+        dynamo_db.create_table(
+            TableName=table_name,
+            KeySchema=[
+                {'AttributeName': 'message_id', 'KeyType': 'HASH'}
+            ],
+            AttributeDefinitions=[{'AttributeName': 'message_id', 'AttributeType': 'S'}],
+            ProvisionedThroughput={'ReadCapacityUnits': 10, 'WriteCapacityUnits': 10}
+        )
+        dynamo_db.wait_until_exists()
+    except ClientError as err:
+        logger.error(
+            "Couldn't create table %s. Here's why: %s: %s", table_name,
+            err.response['Error']['Code'], err.response['Error']['Message'])
+        raise
+    logger.info("Table message_ids has been successfully created for the first time")
 
 subscriptions = sns.list_subscriptions_by_topic(TopicArn=topic_arn)['Subscriptions']
 for subscription in subscriptions:
@@ -53,13 +76,47 @@ def lambda_handler(event, context):
     posting_date = datetime.today() - timedelta(days=1)
     for update in client.iter_messages(channel_id, reverse=True, offset_date=posting_date):
         # Translate the message to your desired language
-        translated_message = translate_text(text=update.text)
-        logger.info("the message is %s", translated_message)
+        message_id = update.id
+        try:
+            response = dynamo_db.query(
+                TableName=table_name,
+                KeyConditionExpression='message_id = :message_id',
+                ExpressionAttributeValues={':message_id': {
+                    "S": str(message_id)
+                }
+                }
+            )
+        except ClientError as error:
+            logger.error("couldn't get the query. Here's why: %s: %s",
+                         error.response['Error']['Code'],
+                         error.response['Error']['Message'])
+            raise
 
-        if re.search(pattern, translated_message, flags=re.IGNORECASE):
-            if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
-                # Send a push notification to yourself
-                send_notification(notification_subject, translated_message)
+        if response['Items']:
+            logger.info("The item %d has been already translated", message_id)
+        else:
+            try:
+                dynamo_db.put_item(
+                    TableName=table_name,
+                    Item={
+                        'message_id': {
+                            "S": str(message_id)
+                        }
+                    }
+                )
+                logger.info("The item %d put into db", message_id)
+            except ClientError as error:
+                logger.error("couldn't get the query. Here's why: %s: %s",
+                             error.response['Error']['Code'],
+                             error.response['Error']['Message'])
+                raise
+            translated_message = translate_text(text=update.text)
+            logger.info("the message is %s", translated_message)
+
+    if re.search(pattern, translated_message, flags=re.IGNORECASE):
+        if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
+            # Send a push notification to yourself
+            send_notification(notification_subject, translated_message)
 
 
 def translate_text(text):
