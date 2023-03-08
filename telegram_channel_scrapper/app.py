@@ -120,8 +120,10 @@ def handle_messages(max_id):
             logger.info("the message is %s", translated_message)
 
             if re.search(pattern, translated_message, flags=re.IGNORECASE):
+                logger.info("Pattern has been detected: ")
                 if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
                     # Send a push notification to yourself
+                    logger.info("Sub-pattern has been detected | Sending the notification")
                     send_notification(notification_subject, translated_message)
 
 
