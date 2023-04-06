@@ -22,8 +22,6 @@ api_hash = os.getenv('API_HASH')
 user_name = os.getenv('USER_NAME')
 channel_id = os.getenv('CHANNEL_ID')
 email = os.getenv('EMAIL')
-pattern = os.getenv('PATTERN')
-sub_pattern = os.getenv('SUB_PATTERN')
 source_lang = os.getenv('SRC_LNG')
 target_lang = os.getenv('TRG_LNG')
 notification_subject = os.getenv('NOTIF_SUB')
@@ -75,21 +73,21 @@ session = os.environ.get('SESSION')
 client = TelegramClient(StringSession(session), api_id, api_hash)
 client.start()
 
-posting_date = datetime.today() - timedelta(days=1)
 
 
 def lambda_handler(event, context):
+    posting_date = datetime.today() - timedelta(days=1)
     global translated_message
     max_id = find_max_id()
 
-    handle_messages(max_id)
+    handle_messages(max_id, posting_date)
     return {
         'statusCode': 200,
         'result': 'Success'
     }
 
 
-def handle_messages(max_id):
+def handle_messages(max_id, posting_date):
     global translated_message
     for update in client.iter_messages(channel_id, reverse=True, offset_date=posting_date, min_id=max_id):
         # Translate the message to your desired language
@@ -116,15 +114,24 @@ def handle_messages(max_id):
                              error.response['Error']['Code'],
                              error.response['Error']['Message'])
                 raise
+
             translated_message = translate_text(text=update.text)
             logger.info("the message is %s", translated_message)
 
             logger.info("Checking pattern in translated message: %s", translated_message)
+            pattern = r'[Aa]japn[yi]ak|[Mm]alatia-sebastia'
+            sub_pattern = r'[Tt]erle*m[ez][yi]an'
             if re.search(pattern, translated_message, flags=re.IGNORECASE):
                 logger.info("Pattern has been detected: ")
                 if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
                     logger.info("Sub-pattern has been detected | Sending the notification")
-                    send_notification(notification_subject, translated_message)
+                    try:
+                        send_notification(notification_subject, translated_message)
+                    except ClientError as error:
+                        logger.error("couldn't send the notification. Here's why: %s: %s",
+                                     error.response['Error']['Code'],
+                                     error.response['Error']['Message'])
+                        raise
 
 
 def check_db(update):
