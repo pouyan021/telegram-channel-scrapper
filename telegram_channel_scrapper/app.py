@@ -74,10 +74,8 @@ client = TelegramClient(StringSession(session), api_id, api_hash)
 client.start()
 
 
-
 def lambda_handler(event, context):
     posting_date = datetime.today() - timedelta(days=1)
-    global translated_message
     max_id = find_max_id()
 
     handle_messages(max_id, posting_date)
@@ -88,50 +86,54 @@ def lambda_handler(event, context):
 
 
 def handle_messages(max_id, posting_date):
-    global translated_message
     for update in client.iter_messages(channel_id, reverse=True, offset_date=posting_date, min_id=max_id):
-        # Translate the message to your desired language
-        message_id, response = check_db(update)
+        handle_message(update)
 
-        if response['Items']:
-            logger.info("The item %d has been already translated", message_id)
-        else:
+
+def handle_message(update):
+    message_id, response = check_db(update)
+    if response['Items']:
+        logger.info("The item %d has been already translated", message_id)
+        return
+    try:
+        dynamo_db.put_item(
+            TableName=table_name,
+            Item={
+                'message_id': {
+                    "S": str(message_id)
+                },
+                'id': {
+                    "N": str(message_id)
+                }
+            }
+        )
+        logger.info("The item %d put into db", message_id)
+    except ClientError as error:
+        logger.error("couldn't get the query. Here's why: %s: %s",
+                     error.response['Error']['Code'],
+                     error.response['Error']['Message'])
+        raise
+    translated_message = translate_text(text=update.text)
+    handle_translated_message(translated_message)
+
+
+def handle_translated_message(translated_message):
+    logger.info("the message is %s", translated_message)
+
+    logger.info("Checking pattern in translated message: %s", translated_message)
+    pattern = r'[Aa]japn[yi]ak|[Mm]alatia-sebastia'
+    sub_pattern = r'[Tt]erle*m[ez][yi]an'
+    if re.search(pattern, translated_message, flags=re.IGNORECASE):
+        logger.info("Pattern has been detected")
+        if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
+            logger.info("Sub-pattern has been detected | Sending the notification")
             try:
-                dynamo_db.put_item(
-                    TableName=table_name,
-                    Item={
-                        'message_id': {
-                            "S": str(message_id)
-                        },
-                        'id': {
-                            "N": str(message_id)
-                        }
-                    }
-                )
-                logger.info("The item %d put into db", message_id)
+                send_notification(notification_subject, translated_message)
             except ClientError as error:
-                logger.error("couldn't get the query. Here's why: %s: %s",
+                logger.error("couldn't send the notification. Here's why: %s: %s",
                              error.response['Error']['Code'],
                              error.response['Error']['Message'])
                 raise
-
-            translated_message = translate_text(text=update.text)
-            logger.info("the message is %s", translated_message)
-
-            logger.info("Checking pattern in translated message: %s", translated_message)
-            pattern = r'[Aa]japn[yi]ak|[Mm]alatia-sebastia'
-            sub_pattern = r'[Tt]erle*m[ez][yi]an'
-            if re.search(pattern, translated_message, flags=re.IGNORECASE):
-                logger.info("Pattern has been detected: ")
-                if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
-                    logger.info("Sub-pattern has been detected | Sending the notification")
-                    try:
-                        send_notification(notification_subject, translated_message)
-                    except ClientError as error:
-                        logger.error("couldn't send the notification. Here's why: %s: %s",
-                                     error.response['Error']['Code'],
-                                     error.response['Error']['Message'])
-                        raise
 
 
 def check_db(update):
