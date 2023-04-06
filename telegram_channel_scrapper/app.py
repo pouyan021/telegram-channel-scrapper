@@ -119,10 +119,10 @@ def handle_messages(max_id):
             translated_message = translate_text(text=update.text)
             logger.info("the message is %s", translated_message)
 
+            logger.info("Checking pattern in translated message: %s", translated_message)
             if re.search(pattern, translated_message, flags=re.IGNORECASE):
                 logger.info("Pattern has been detected: ")
                 if re.findall(sub_pattern, translated_message, flags=re.IGNORECASE):
-                    # Send a push notification to yourself
                     logger.info("Sub-pattern has been detected | Sending the notification")
                     send_notification(notification_subject, translated_message)
 
@@ -166,8 +166,10 @@ def translate_text(text):
 
 
 def send_notification(subject, message):
-    sns.publish(
+    logger.info("Sending notification with subject: %s and message: %s", subject, message)
+    response = sns.publish(
         TopicArn=topic_arn,
         Message=message,
         Subject=subject
     )
+    logger.info("SNS publish response: %s", response)
